@@ -1,0 +1,13 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=1225
+
+This plugin makes an outline tree of a buffer.
+Also this plugin enables jumping to a node and operating nodes.
+
+Currently, it supports three formats:
+
+    - reStructuredText
+    - TaskPaper
+    - dot-structured text (.. title)
+
+For more detailed descriptions, read dot.vim, or go to
+http://chimachima-site.infoseek.ne.jp/ (in Japanese).
