@@ -2,14 +2,14 @@
 "
 " Summary: Helps you edit a dot-stractured text.
 "
-" Version: 0.2.0
-" Last Change: 01-Mar-2005.
+" Version: 0.3.0
+" Last Change: 19-Mar-2005.
 " Maintainer: Shuhei Kubota <shu_brief AT yahoo.co.jp>
 "
 " Detailed Description:
 "
-"   Make an outline tree of a buffer (containing dot-structured text). Also this
-"   plugin enables jumping to a node and operating nodes.
+"   This plugin makes an outline tree of a buffer (containing dot-structured
+"   text). Also this plugin enables jumping to a node and operating nodes.
 "
 "   [What's the dot-structured text?]
 "
@@ -43,6 +43,12 @@
 "       is not refreshed. Use :RefreshDotOutlineTree(the latter one). But it do
 "       scanning the buffer, structuring nodes, and outputting the data every
 "       time. This makes VIM slow.
+"
+"   :MoveToNextNode
+"   :MoveToPreviousNode
+"
+"       These commands moves the cursor(caret) to a next/previous node. They don't
+"       move nodes, but the cursor. Use them assigning key mappings.
 "
 "   [Variables]
 "
@@ -106,11 +112,11 @@
 "             .bar     ..piyo
 "
 "       <<:
-"           brings up levels of nodes.
+"           brings up the level of nodes.
 "           e.g.
 "             ...hoge => ..hoge
 "       >>:
-"           brings down levels of nodes.
+"           brings down the level of nodes.
 "           e.g.
 "             ...hoge => ....hoge
 
@@ -152,8 +158,11 @@ endif
 " s:levelRegexp
 
 
-command! DotOutlineTree call <SID>DotOutlineTree(0)
+command! DotOutlineTree        call <SID>DotOutlineTree(0)
 command! RefreshDotOutlineTree call <SID>DotOutlineTree(1)
+
+command! MoveToNextNode        call <SID>MoveToNextNode(line('.'))
+command! MoveToPreviousNode    call <SID>MoveToPreviousNode(line('.'))
 
 
 " keymaps on the outline window
@@ -200,6 +209,11 @@ function! s:SetSyntax()
 endfunction
 
 
+"function! NodeLevelAt(lnum)
+"    return s:nodeLevel{s:NodeNumOfLine(a:lnum)}
+"endfunction
+
+
 function! s:DotOutlineTree(refresh)
     if bufname('%') == 'DOT_TREE'
         wincmd p
@@ -211,6 +225,12 @@ function! s:DotOutlineTree(refresh)
     if a:refresh || s:IsTimeToRefresh(currBufferNumber)
         let s:dotBufferNumber = currBufferNumber 
         call s:MakeDotTree()
+
+"        if g:DOT_fold
+"            call confirm('folding ' . bufname('%'))
+"            setlocal foldmethod=expr
+"            setlocal foldexpr=NodeLevelAt(v:lnum)
+"        endif
     endif
     let s:cursorPos = line('.')
 
@@ -224,19 +244,12 @@ function! s:DotOutlineTree(refresh)
     call s:PrintOutlineTree()
 
     " move to the node where the cursor is on
-    let i = 0
-    while i < s:nodeCount
-        if s:cursorPos < s:nodePos{i}
-            if i == 0
-                execute 1
-            else
-                execute i
-            endif
-            break
-        endif
-        let i = i + 1
-    endwhile
-    "normal V
+    let nodeNum = s:NodeNumOfLine(s:cursorPos)
+    if nodeNum == s:nodeCount
+        execute 1
+    else
+        execute nodeNum + 1
+    endif
 
 endfunction
 
@@ -250,6 +263,28 @@ endfunction
 
 function! s:IsTimeToRefresh(currBufferNumber)
     return !exists('s:dotBufferNumber') || (s:dotBufferNumber != a:currBufferNumber) || (g:DOT_refreshWhenModified && ((s:lastModifiedTime < getftime(bufname(s:dotBufferNumber))) || &modified))
+endfunction
+
+
+" before the first node:
+"   s:nodeCount
+" others:
+"   index [0..s:nodeCount)
+function! s:NodeNumOfLine(lnum)
+    if (s:nodeCount == 0) || (a:lnum < s:nodePos{0})
+        return s:nodeCount
+    endif
+
+
+    let i = 0
+    while i < s:nodeCount
+        if a:lnum < s:nodePos{i + 1}
+            break
+        endif
+        let i = i + 1
+    endwhile
+
+    return i
 endfunction
 
 
@@ -495,6 +530,35 @@ function! s:MoveForward(root)
 
     call s:DotOutlineTree(1)
     execute dest - (a:root - term)
+endfunction
+
+
+function! s:MoveToNextNode(lnum)
+    let nodeNum = s:NodeNumOfLine(a:lnum)
+
+    if nodeNum == s:nodeCount - 1
+        return
+    elseif nodeNum == s:nodeCount
+        let nodeNum = -1
+    endif
+
+    execute s:nodePos{nodeNum + 1}
+endfunction
+
+
+function! s:MoveToPreviousNode(lnum)
+    let nodeNum = s:NodeNumOfLine(a:lnum)
+
+    if (nodeNum != s:nodeCount) && (s:nodePos{nodeNum} < a:lnum)
+        let nodeNum = nodeNum + 1
+    endif
+
+    if (nodeNum == s:nodeCount) || (nodeNum == 0)
+        " no previous node
+        execute 1
+    else
+        execute s:nodePos{nodeNum - 1}
+    endif
 endfunction
 
 
