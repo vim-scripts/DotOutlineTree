@@ -169,6 +169,12 @@
 " Declaration
 "````````````
 "
+"   DOT detects the type of your document automatically.
+"   So, in most cases, you don't need to tell DOT what type of your document
+"   is.
+"
+"   (YOU CAN SKIP THIS Declaration SECTION)
+"
 "   You can declare the format of your document.
 "   There are two ways to do it.
 "
@@ -964,10 +970,34 @@ function! s:DOT__detectType(buffNum)
 
         let i += 1
     endwhile
+    if index(g:DOT_types, type, 0, 1) != -1 | return type | endif
+
+    " auto detection
+    let ranks = {}
+    for sttype in g:DOT_types
+        let Init = function('g:DOT_' . sttype . 'Init')
+        call Init(a:buffNum)
+        unlet Init
+        let headings = s:Text_collectHeadings(
+                            \ a:buffNum, 
+                            \ function('g:DOT_' . sttype . 'DetectHeading'), 
+                            \ function('g:DOT_' . sttype . 'ExtractTitle'),
+                            \ function('g:DOT_' . sttype . 'ExtractLevel'))
+        let ranks[sttype] = len(headings)
+    endfor
+
+    let rankList = sort(items(ranks), 's:DOT__rankSortingPred')
+    if len(rankList) > 0
+        return rankList[0][0]
+    endif
 
     return 'base' " default type
 endfunction
 
+" descending order
+function! s:DOT__rankSortingPred(i1, i2)
+    return a:i1[1] == a:i2[1] ? 0 : a:i1[1] < a:i2[1] ? 1 : -1
+endfunction
 
 function! s:DOT__buildNodeTree(buffNum)
     let rootNode = s:Node_create(':ROOT:', 0, 0)
@@ -1345,15 +1375,17 @@ endif
 " making one object file
 "--------------------
 
+"
 "reStructuredText plugin for DOT
+"===============================
 "
 "ThisIs:
-"
+"-------
 "   A plugin for DOT.
 "   With this plugin, DOT can make outline tree from reStrucredText.
 "
 "Usage:
-"
+"-------
 "   Add a new line to the target buffer.
 "       > outline: <rest>
 "   or
@@ -1427,7 +1459,8 @@ function! s:DOT__restStripCommenterCharacters(buffNum, line)
     "echoe line . ' => ' . nextLine
 endfunction
 "
-" vim: set et ff=unix fenc=utf-8 sts=4 sw=4 ts=4 :
+" vim: set et ff=unix fenc=utf-8 sts=4 sw=4 ts=4 : <rest>
+"
 "TaskPaper plugin for DOT:
 "
 "ThisIs:
@@ -1474,6 +1507,6 @@ function! g:DOT_taskpaperSetHeading(buffNum, title, level, lineNum)
     call setline(a:lineNum, a:title . ':')
 endfunction
 "
-" vim: set et ff=unix fenc=utf-8 sts=4 sw=4 ts=4 :
+" vim: set et ff=unix fenc=utf-8 sts=4 sw=4 ts=4 : <taskpaper>
 
 " vim: set fenc=utf-8 ff=unix ts=4 sts=4 sw=4 et : <rest>
