@@ -333,7 +333,8 @@ endfunction
 "--------------------
 
 let s:DOT_BUFFER_PREFIX = 'DotOutlineTree'
-if !exists('g:DOT_types') | let g:DOT_types = [] | endif
+let s:DOT_DEFAULT_TYPE = 'base'
+if !exists('g:DOT_types') | let g:DOT_types = [s:DOT_DEFAULT_TYPE] | endif
 
 
 function! s:DOT_execute(dokozonoLineNum)
@@ -1408,6 +1409,12 @@ function! g:DOT_restDetectHeading(buffNum, targetLine, targetLineIndex, entireLi
     if a:targetLineIndex == len(a:entireLines) - 1 | return 0 | endif
 
     let nextLine = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 1])
+
+    " ignore an over line of a TITLE
+    if a:targetLineIndex + 3 < len(a:entireLines)
+        let nextLine3 = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 3])
+        if nextLine[0] == nextLine3[0] | return 0 | endif
+    endif
 
     if nextLine =~ '^[-=`:.''"~^_*+#]\{2,\}$' && a:targetLine !~ '^[-=`:.''"~^_*+#]\{2,\}$'
         let detected = 1
