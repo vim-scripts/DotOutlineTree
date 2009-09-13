@@ -14,9 +14,6 @@
 "       - TaskPaper
 "       - dot-structured text (.. title)
 "
-" Last Change: 2008/08/24
-"-------------
-"
 " Maintainer: Shuhei Kubota <kubota.shuhei+vim@gmail.com>
 "------------
 "
@@ -360,6 +357,9 @@ endfunction
 function! s:DOT__renderTree(node)
     setlocal modifiable
 
+    " stop the yank hijack
+    let old_yank = @"
+
     " clear
     %delete
 
@@ -368,6 +368,8 @@ function! s:DOT__renderTree(node)
 
     execute 0
     delete
+
+    let @" = old_yank
 
     setlocal nomodifiable
 endfunction
@@ -453,7 +455,8 @@ endfunction
 function! s:DOT_escape()
     if !s:DOT__inTreeBuffer(bufnr('%')) | return | endif
 
-    execute b:DOT_textBuffNum . 'wincmd w'
+    let textWinNum = bufwinnr(bufname(b:DOT_textBuffNum))
+    execute textWinNum . 'wincmd w'
 endfunction
 
 
@@ -1413,7 +1416,7 @@ function! g:DOT_restDetectHeading(buffNum, targetLine, targetLineIndex, entireLi
     " ignore an over line of a TITLE
     if a:targetLineIndex + 3 < len(a:entireLines)
         let nextLine3 = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 3])
-        if nextLine[0] == nextLine3[0] | return 0 | endif
+        if nextLine == nextLine3 | return 0 | endif
     endif
 
     if nextLine =~ '^[-=`:.''"~^_*+#]\{2,\}$' && a:targetLine !~ '^[-=`:.''"~^_*+#]\{2,\}$'
