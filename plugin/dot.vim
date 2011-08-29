@@ -1548,6 +1548,9 @@ function! g:DOT_restDetectHeading(buffNum, targetLine, targetLineIndex, entireLi
         if nextLine[0] == nextLine3[0] | return 0 | endif
     endif
 
+    " ignore transitions and literal blocks and empty comments
+    if len(a:targetLine) == 0 | return 0 | endif
+
     if nextLine =~ s:DOT_REST_REGEXP && a:targetLine !~ s:DOT_REST_REGEXP
         let detected = 1
 
@@ -1599,7 +1602,7 @@ function! s:DOT__restStripCommenterCharacters(buffNum, line)
     "echoe line . ' => ' . nextLine
 endfunction
 "
-" vim: set et ff=unix fenc=utf-8 sts=4 sw=4 ts=4 : <rest>
+" vim: set et ff=unix sts=4 sw=4 ts=4 : <rest>
 "
 "TaskPaper plugin for DOT:
 "
@@ -1647,6 +1650,6 @@ function! g:DOT_taskpaperSetHeading(buffNum, title, level, lineNum)
     call setline(a:lineNum, a:title . ':')
 endfunction
 "
-" vim: set et ff=unix fenc=utf-8 sts=4 sw=4 ts=4 : <taskpaper>
+" vim: set et ff=unix sts=4 sw=4 ts=4 : <taskpaper>
 
-" vim: set fenc=utf-8 ff=unix ts=4 sts=4 sw=4 et : <rest>
+" vim: set ts=4 sts=4 sw=4 et : <rest>
