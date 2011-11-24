@@ -23,7 +23,7 @@
 "---------------------
 "
 "   Put this plugin in your plugin directory (e.g. $VIMRUNTIME/plugin). Then
-"   restart VIM.
+"   restart Vim.
 "
 " Usage:
 "-------
@@ -35,7 +35,7 @@
 "
 "       This command constructs an outline tree, and shows an outline window.
 "       But it does scanning the buffer, structuring nodes, and outputting the
-"       data every time. This makes VIM slow at the moment.
+"       data every time. This makes Vim slow at the moment.
 "
 " Key Mappings (and Commands)
 "~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -152,12 +152,15 @@
 "       Supports 'section headers'.
 "
 "       An added new level (child node) is always marked with :::::::, so you
-"       need to modify marks.
+"       need to modify marks. Once you modify marks, DOT uses that marks.
 "
 "       TITLE
 "       =====
 "       TEXT
 "       TEXT
+"
+"       Overline is partly supported. Whether an overline is used or not, is
+"       recorded by levels.
 "
 "   - TaskPaper ('taskpaper'):
 "
@@ -747,8 +750,16 @@ function! s:DOT_incLevel(dokoLineNum1, dokoLineNum2)
 
     call s:Util_switchCurrentBuffer(buffNum, 'new')
 
+    let lineNumDelta = 0
     while node isnot lastNode
-        call s:Text_setHeading(buffNum, node.title, node.level + 1, node.lineNum, 'g:DOT_' . sttype . 'SetHeading')
+        let delta = s:Text_setHeading(
+                    \ buffNum,
+                    \ node.title,
+                    \ node.level,
+                    \ node.level + 1,
+                    \ node.lineNum + lineNumDelta,
+                    \ 'g:DOT_' . sttype . 'DecorateHeading')
+        let lineNumDelta = lineNumDelta + delta
         let node = s:Node_getNextNode(node)
     endwhile
 
@@ -806,8 +817,16 @@ function! s:DOT_decLevel(dokoLineNum1, dokoLineNum2)
 
     " run
     let node = node1
+    let lineNumDelta = 0
     while node isnot lastNode
-        call s:Text_setHeading(buffNum, node.title, node.level - 1, node.lineNum, 'g:DOT_' . sttype . 'SetHeading')
+        let delta = s:Text_setHeading(
+                    \ buffNum, 
+                    \ node.title, 
+                    \ node.level, 
+                    \ node.level - 1, 
+                    \ node.lineNum + lineNumDelta,
+                    \ 'g:DOT_' . sttype . 'DecorateHeading')
+        let lineNumDelta = lineNumDelta + delta
         let node = s:Node_getNextNode(node)
     endwhile
 
@@ -1197,7 +1216,7 @@ endfunction
 
 
 function! g:DOT_baseDecorateHeading(buffNum, title, level)
-    return {'lines':[repeat(s:DOT_baseGetHeadingMark(a:buffNum), a:level) . ' ' . a:title, '', '', ''], 'cursorPos': [1, 0]}
+    return {'marginTop': [], 'lines': [repeat(s:DOT_baseGetHeadingMark(a:buffNum), a:level) . ' ' . a:title], 'marginBottom': ['', '', ''], 'cursorPos': [1, 0]}
 endfunction
 
 
@@ -1244,26 +1263,52 @@ endfunction
 function! s:Text_collectHeadings(buffNum, headingDetector, titleExtractor, levelExtractor)
     let lines = getbufline(a:buffNum, 1, '$')
 
-    let lineNum = 1
     let headings = []
-    for line in lines
-        if a:headingDetector(a:buffNum, line, lineNum - 1, lines)
+    let lineIdx = 0
+    while lineIdx < len(lines)
+        let line = lines[lineIdx]
+
+        "echom 'iterating over headings ... ' . string(lineIdx + 1)
+        let headingLineCount = a:headingDetector(a:buffNum, line, lineIdx, lines)
+        if headingLineCount
             call add(headings, {
-                     \ 'lineNum': lineNum,
-                     \ 'title': a:titleExtractor(a:buffNum, line, lineNum - 1, lines),
-                     \ 'level': a:levelExtractor(a:buffNum, line, lineNum - 1, lines),
+                     \ 'lineNum': lineIdx + 1,
+                     \ 'title': a:titleExtractor(a:buffNum, line, lineIdx, lines),
+                     \ 'level': a:levelExtractor(a:buffNum, line, lineIdx, lines),
                      \ })
+            "echom '  -> headingLineCount: ' . string(headingLineCount)
+            "echom '  -> lineNum: ' . string(lineIdx + 1)
+            "echom '  -> title: ' . a:titleExtractor(a:buffNum, line, lineIdx, lines)
+            "echom '  -> level: ' . a:levelExtractor(a:buffNum, line, lineIdx, lines)
         endif
 
-        let lineNum += 1
-    endfor
+        let lineIdx = lineIdx + headingLineCount + 1
+    endwhile
 
     return headings
 endfunction
 
 
-function! s:Text_setHeading(buffNum, title, level, lineNum, headingSetter)
-    call function(a:headingSetter)(a:buffNum, a:title, a:level, a:lineNum)
+function! s:Text_setHeading(buffNum, title, originalLevel, level, lineNum, headingSetter)
+    let Fn = function(a:headingSetter)
+    let headingInfo = Fn(a:buffNum, a:title, a:level)
+    let originalHeadingInfo = Fn(a:buffNum, a:title, a:originalLevel)
+
+    "echom 'deleting from ' . string(a:lineNum) . ' to ' . string(a:lineNum + len(originalHeadingInfo.lines) - 1)
+    "call getchar()
+
+    call s:Text_deleteLines(a:lineNum, a:lineNum + len(originalHeadingInfo.lines) - 1)
+
+    "redraw
+    "echom 'inserting into ' . string(a:lineNum - 1)
+    "call getchar()
+
+    call s:Text_insertLines(a:lineNum - 1, headingInfo.lines)
+
+    "redraw
+    "echom 'delta ' . string(len(headingInfo.lines) - len(originalHeadingInfo.lines))
+
+    return len(headingInfo.lines) - len(originalHeadingInfo.lines)
 endfunction
 
 
@@ -1286,7 +1331,10 @@ endfunction
 function! s:Text_insertHeading(buffNum, lineNum, title, level, headingDecorator)
     let Fn = function(a:headingDecorator)
     let headingInfo = Fn(a:buffNum, a:title, a:level)
-    call append(a:lineNum, headingInfo.lines)
+
+    call s:Text_insertLines(a:lineNum, headingInfo.marginBottom)
+    call s:Text_insertLines(a:lineNum, headingInfo.lines)
+    call s:Text_insertLines(a:lineNum, headingInfo.marginTop)
 
     let pos = getpos('.')
     let pos[1] = a:lineNum + 1 + headingInfo.cursorPos[0]
@@ -1529,69 +1577,238 @@ endif
 let s:DOT_REST_REGEXP = '\m^[-=`:.''"~^_*+#]\{2,\}$'
 
 function! g:DOT_restInit(buffNum)
-    call setbufvar(a:buffNum, 'DOT_restSectionMarks', [])
     "let b:DOT_restSectionMarks = []
+    call setbufvar(a:buffNum, 'DOT_restSectionMarks', [])
+    call setbufvar(a:buffNum, 'DOT_restSectionStyles', []) "0:underlined, 1:also overlined
 endfunction
 
+" hogehoge              <- not detected because next line is for section 1.
+" ===============       <- detected if exists
 " section 1.            <- detected
 " ===============       <- not detected
 function! g:DOT_restDetectHeading(buffNum, targetLine, targetLineIndex, entireLines)
-    let detected = 0
+    let headingLineCount = 0
 
-    if a:targetLineIndex == len(a:entireLines) - 1 | return 0 | endif
-
-    let nextLine = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 1])
-
-    " ignore an over line of a TITLE
-    if a:targetLineIndex + 3 < len(a:entireLines)
-        let nextLine3 = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 3])
-        if nextLine[0] == nextLine3[0] | return 0 | endif
+    if a:targetLineIndex == len(a:entireLines) - 1 
+        return 0 
     endif
 
-    " ignore transitions and literal blocks and empty comments
-    if len(a:targetLine) == 0 | return 0 | endif
+    let overlineIdx = -1
+    let overline = ''
+    let titleIdx = -1
+    let title = ''
+    let underlineIdx = -1
+    let underline = ''
 
-    if nextLine =~ s:DOT_REST_REGEXP && a:targetLine !~ s:DOT_REST_REGEXP
-        let detected = 1
+    " test if targetLine is an overline
+    let overline = s:DOT__restStripCommenterCharacters(a:buffNum, a:targetLine)
+    if overline =~ s:DOT_REST_REGEXP
+        "echom '  overline: ' . overline
+        let headingLineCount = 2
 
-        " add if no entry
-        let mark = nextLine[0]
-        "echoe mark . ' ' . nextLine
-        if index(getbufvar(a:buffNum, 'DOT_restSectionMarks'), mark) == -1
-            call add(getbufvar(a:buffNum, 'DOT_restSectionMarks'), mark)
+        let overlineIdx = a:targetLineIndex
+
+        " boudary check (needs 2 more lines)
+        "echom '  boundary ... tgtLineIdx: ' . a:targetLineIndex . ', entire: ' . len(a:entireLines)
+        if a:targetLineIndex + 2 > len(a:entireLines) - 1 
+            return 0 
+        endif
+
+        " title
+        let titleIdx = a:targetLineIndex + 1
+        let title = substitute(s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[titleIdx]), '\V\^\%(\s\*\)\(\.\*\)\$', '\1', '')
+        "echom '  title: "' . title . '"'
+        " title check
+        if title == '' || title =~ s:DOT_REST_REGEXP
+            return 0
+        endif
+
+        " underline
+        let underlineIdx = a:targetLineIndex + 2
+        let underline = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[underlineIdx])
+        "echom '  underline: ' . underline
+        " underline check
+        if underline != overline
+            return 0
+        endif
+    else
+        let headingLineCount = 1
+
+        let overlineIdx = -1
+        let overline = ''
+
+        " boudary check (needs 1 more line)
+        "echom '  boundary ... tgtLineIdx: ' . a:targetLineIndex . ', entire: ' . len(a:entireLines)
+        if a:targetLineIndex + 1 > len(a:entireLines) - 1 
+            return 0 
+        endif
+
+        " title
+        let titleIdx = a:targetLineIndex
+        let title = substitute(s:DOT__restStripCommenterCharacters(a:buffNum, a:targetLine), '\V\^\%(\s\*\)\(\.\*\)\$', '\1', '')
+        "echom '  title: "' . title . '"'
+        " title check
+        if title == '' || title =~ s:DOT_REST_REGEXP
+            return 0
+        endif
+
+        " underline
+        let underlineIdx = a:targetLineIndex + 1
+        let underline = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[underlineIdx])
+        "echom '  underline: ' . underline
+        " underline check
+        if underline !~ s:DOT_REST_REGEXP
+            return 0
+        endif
+
+        " check if the target line is just before an overline
+        if a:targetLineIndex + 3 <= len(a:entireLines) - 1
+            let nextSectionUnderline = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 3])
+            if nextSectionUnderline == underline
+                " if this level's style is overlined and underlined, this line
+                " should be skipped.
+                let level = g:DOT_restExtractLevel(a:buffNum, underline, underlineIdx, a:entireLines)
+                " encounterd for the first time  or  overlined and underlined style
+                if level == 0 || s:DOT__restGetSectionStyle(a:buffNum, level) != 0
+                    return 0
+                endif
+            endif
         endif
     endif
 
-    return detected
+    " add if no entry
+    let mark = underline[0]
+    "echoe mark . ' ' . underline
+    if index(getbufvar(a:buffNum, 'DOT_restSectionMarks'), mark) == -1
+        call add(getbufvar(a:buffNum, 'DOT_restSectionMarks'), mark)
+        " overlined?
+        call add(getbufvar(a:buffNum, 'DOT_restSectionStyles'), (overlineIdx != -1) )
+    endif
+
+    return headingLineCount
+
+
+    "let nextLine = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 1])
+
+    "" ignores an overline of the next section heading
+    "if a:targetLineIndex + 3 < len(a:entireLines)
+    "    let nextLine3 = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 3])
+    "    if nextLine[0] == nextLine3[0] | return 0 | endif
+    "endif
+
+    "" ignore transitions and literal blocks and empty comments
+    "if len(a:targetLine) == 0 | return 0 | endif
+
+    "if nextLine =~ s:DOT_REST_REGEXP && a:targetLine !~ s:DOT_REST_REGEXP
+    "    let headingLineCount = 1
+
+    "    " add if no entry
+    "    let mark = nextLine[0]
+    "    "echoe mark . ' ' . nextLine
+    "    if index(getbufvar(a:buffNum, 'DOT_restSectionMarks'), mark) == -1
+    "        call add(getbufvar(a:buffNum, 'DOT_restSectionMarks'), mark)
+    "        " overlined?
+    "        let sectionStyle = 0
+    "        if a:targetLineIndex > 0 && a:entireLines[a:targetLineIndex - 1] =~ s:DOT_REST_REGEXP
+    "            let sectionStyle = 1
+    "        endif
+    "        call add(getbufvar(a:buffNum, 'DOT_restSectionStyles'), sectionStyle)
+    "    endif
+    "endif
+
+    "return headingLineCount
 endfunction
 
 
 function! g:DOT_restExtractTitle(buffNum, targetLine, targetLineIndex, entireLines)
     " strip leading spaces
-    return substitute(a:targetLine, '\V\^\%(\s\*\)\(\.\*\)\$', '\1', '')
+    let title = s:DOT__restStripCommenterCharacters(a:buffNum, a:targetLine)
+    if title =~ s:DOT_REST_REGEXP
+        let title = a:entireLines[a:targetLineIndex + 1]
+    endif
+    return substitute(title, '\V\^\%(\s\*\)\(\.\*\)\$', '\1', '')
 endfunction
 
 
 function! g:DOT_restExtractLevel(buffNum, targetLine, targetLineIndex, entireLines)
-    let mark = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 1])[0]
-    "echom l:mark . (index(getbufvar(a:buffNum, 'DOT_restSectionMarks'), l:mark) + 1) . join(getbufvar(a:buffNum, 'DOT_restSectionMarks'))
+    let test = s:DOT__restStripCommenterCharacters(a:buffNum, a:targetLine)
+    if test =~ s:DOT_REST_REGEXP
+        let undeline = test
+    else
+        let undeline = s:DOT__restStripCommenterCharacters(a:buffNum, a:entireLines[a:targetLineIndex + 1])
+    endif
+    let mark = undeline[0]
+
     return index(getbufvar(a:buffNum, 'DOT_restSectionMarks'), mark) + 1
 endfunction
 
 
 function! g:DOT_restSetHeading(buffNum, title, level, lineNum)
-    let mark = ':'
-    if a:level <= len(getbufvar(a:buffNum, 'DOT_restSectionMarks')) | let mark = getbufvar(a:buffNum, 'DOT_restSectionMarks')[a:level - 1] | endif
+    let mark = s:DOT__restGetSectionMark(a:buffNum, a:level)
+    let style = s:DOT__restGetSectionStyle(a:buffNum, a:level)
 
-    call setline(a:lineNum, [a:title, repeat(mark, 20)])
+    let lines = []
+
+    if style == 1
+        let lines = [s:DOT__repeat(mark, a:title), a:title, s:DOT__repeat(mark, a:title)]
+    else
+        let lines = [a:title, s:DOT__repeat(mark, a:title)]
+    endif
+
+    call setline(a:lineNum, lines)
 endfunction
 
 
 function! g:DOT_restDecorateHeading(buffNum, title, level)
-    let mark = ':'
-    if a:level <= len(getbufvar(a:buffNum, 'DOT_restSectionMarks')) | let mark = getbufvar(a:buffNum, 'DOT_restSectionMarks')[a:level - 1] | endif
+    let mark = s:DOT__restGetSectionMark(a:buffNum, a:level)
+    let style = s:DOT__restGetSectionStyle(a:buffNum, a:level)
 
-    return {'lines':[a:title, repeat(mark, 20), '', ''], 'cursorPos': [2, 0]}
+    let lines = []
+    let cursorPos = [0, 0]
+    let deletedLineCount = 2
+
+    if style == 1
+        let lines = [s:DOT__repeat(mark, a:title), a:title, s:DOT__repeat(mark, a:title)]
+        let cursorPos = [4, 0]
+    else
+        let lines = [a:title, s:DOT__repeat(mark, a:title)]
+    let cursorPos = [3, 0]
+    endif
+
+    return {'marginTop': [], 'lines': lines, 'marginBottom': ['', ''], 'cursorPos': cursorPos}
+endfunction
+
+
+function! s:DOT__repeat(mark, s)
+    if exists('*strwidth')
+        return repeat(a:mark, strwidth(a:s))
+    else
+        return repeat(a:mark, len(a:s))
+    endif
+endfunction
+
+
+function! s:DOT__restGetSectionMark(buffNum, level)
+    let marks = getbufvar(a:buffNum, 'DOT_restSectionMarks')
+    if a:level <= len(marks) 
+        let mark = marks[a:level - 1] 
+    else
+        let mark = ':'
+    endif
+
+    return mark
+endfunction
+
+
+function! s:DOT__restGetSectionStyle(buffNum, level)
+    let styles = getbufvar(a:buffNum, 'DOT_restSectionStyles')
+    if a:level <= len(styles) 
+        let style = styles[a:level - 1] 
+    else
+        let style = styles[len(styles) - 1] 
+    endif
+
+    return style
 endfunction
 
 
@@ -1623,7 +1840,7 @@ endif
 let s:DOT_TASKPAPER_REGEXP = '\m^\(.\+\):\s*$'
 
 function! g:DOT_taskpaperDecorateHeading(buffNum, title, level)
-    return {'lines':[a:title . ':', '', '', ''], 'cursorPos': [1, 0]}
+    return {'marginTop': [], 'lines':[a:title . ':'], 'marginBottom': ['', '', ''], 'cursorPos': [1, 0]}
 endfunction
 
 

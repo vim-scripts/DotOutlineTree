@@ -9,5 +9,4 @@ Currently, it supports three formats:
     - TaskPaper
     - dot-structured text (.. title)
 
-For more detailed descriptions, read dot.vim, or go to
-http://chimachima-site.infoseek.ne.jp/ (in Japanese).
+For more detailed descriptions, read dot.vim.
